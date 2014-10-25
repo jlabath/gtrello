@@ -1,0 +1,4 @@
+cron:
+- description: error log check job
+  url: /logview/
+  schedule: every 2 hours

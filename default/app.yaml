@@ -1,5 +1,5 @@
 application: gadvhook
-version: 2
+version: 3
 runtime: go
 api_version: go1
 module: default
@@ -18,6 +18,10 @@ handlers:
 - url: /robots\.txt
   static_files: static/robots.txt
   upload: static/robots\.txt
+
+- url: /logview/
+  script: _go_app
+  login: admin
 
 - url: /.*
   script: _go_app

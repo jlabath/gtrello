@@ -7,14 +7,15 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"os"
-
 	"net/http"
+	"os"
 	"time"
 
 	"appengine"
 	"appengine/datastore"
 	"appengine/delay"
+	alog "appengine/log"
+	"appengine/mail"
 	"appengine/urlfetch"
 
 	cm "github.com/jlabath/cmsgparser"
@@ -27,6 +28,7 @@ var cfg struct {
 	Token          string
 	GithubSecret   string
 	MaxCommentSize int
+	Admins         []string
 }
 
 const OK_BODY = "<html><body>OK</body></html>"
@@ -290,6 +292,48 @@ func actionCard(ctx appengine.Context, link *cm.Node, comment string, url string
 
 var actionCardLater = delay.Func("actionCard1", actionCard)
 
+func logView(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	start := time.Now().Add(-2 * time.Hour) //only last two hours
+	query := &alog.Query{
+		AppLogs:   true,
+		StartTime: start,
+	}
+	var textBuf bytes.Buffer
+
+	for results := query.Run(c); ; {
+		record, err := results.Next()
+		if err == alog.Done {
+			break
+		}
+		if err != nil {
+			c.Errorf("Failed to retrieve next log: %v", err)
+			break
+		}
+		if record.Status > 400 {
+			textBuf.WriteString(record.Combined)
+			textBuf.WriteString("\n")
+		}
+	}
+	if textBuf.Len() > 0 {
+		//send email
+		sendAdminEmail(c, textBuf.String())
+	}
+	fmt.Fprintf(w, "<HTML><BODY><PRE>%s</PRE></BODY>", textBuf.String())
+}
+
+func sendAdminEmail(c appengine.Context, message string) {
+	msg := &mail.Message{
+		Sender:  "GAdvHook <gae@gadvhook.appspotmail.com>",
+		To:      cfg.Admins,
+		Subject: "System Notification",
+		Body:    message,
+	}
+	if err := mail.Send(c, msg); err != nil {
+		c.Errorf("Couldn't send email: %v", err)
+	}
+}
+
 //init loads configuration and setups url we listen on
 func init() {
 	f, err := os.Open("config.json")
@@ -308,5 +352,6 @@ func init() {
 		}
 	}
 	//define url handlers
+	http.HandleFunc("/logview/", logView)
 	http.HandleFunc("/", trelloView)
 }
